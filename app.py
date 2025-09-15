@@ -5,15 +5,7 @@ import tempfile
 from pathlib import Path
 
 app = Flask(__name__)
-# IMPORTANT: Change this to a random secret key
-app.secret_key = 'a-very-random-and-secret-string'
-
-# --- ADD THIS ---
-# A common User-Agent to make requests look like they're from a browser
-COMMON_HEADERS = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/107.0.0.0 Safari/537.36'
-}
-# ---------------
+app.secret_key = 'your-secret-key-here'
 
 @app.route('/', methods=['GET', 'POST'])
 def index():
@@ -25,48 +17,48 @@ def index():
             flash('Please enter a YouTube URL', 'error')
             return redirect(url_for('index'))
         
-        with tempfile.TemporaryDirectory() as temp_dir:
-            try:
-                if download_type == 'audio':
-                    ydl_opts = {
-                        'format': 'bestaudio/best',
-                        'postprocessors': [{
-                            'key': 'FFmpegExtractAudio',
-                            'preferredcodec': 'mp3',
-                            'preferredquality': '192',
-                        }],
-                        'outtmpl': os.path.join(temp_dir, '%(title)s.%(ext)s'),
-                        'http_headers': COMMON_HEADERS # --- ADD THIS LINE ---
-                    }
-                else:
-                    ydl_opts = {
-                        'format': 'bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
-                        'outtmpl': os.path.join(temp_dir, '%(title)s.%(ext)s'),
-                        'http_headers': COMMON_HEADERS # --- ADD THIS LINE ---
-                    }
+        try:
+            # Create temporary directory
+            temp_dir = tempfile.mkdtemp()
+            
+            if download_type == 'audio':
+                # Download as MP3
+                ydl_opts = {
+                    'format': 'bestaudio/best',
+                    'postprocessors': [{
+                        'key': 'FFmpegExtractAudio',
+                        'preferredcodec': 'mp3',
+                        'preferredquality': '192',
+                    }],
+                    'outtmpl': os.path.join(temp_dir, '%(title)s.%(ext)s'),
+                }
+            else:
+                # Download video (max 1080p)
+                ydl_opts = {
+                    'format': 'best[height<=1080]',
+                    'outtmpl': os.path.join(temp_dir, '%(title)s.%(ext)s'),
+                }
+            
+            # Download the file
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                ydl.download([url])
+            
+            # Find the downloaded file
+            files = list(Path(temp_dir).glob('*'))
+            if files:
+                downloaded_file = files[0]
+                return send_file(
+                    downloaded_file, 
+                    as_attachment=True, 
+                    download_name=downloaded_file.name
+                )
+            else:
+                flash('Download failed - no file created', 'error')
                 
-                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                    ydl.download([url])
-                
-                files = list(Path(temp_dir).glob('*'))
-                if files:
-                    downloaded_file = files[0]
-                    return send_file(
-                        downloaded_file, 
-                        as_attachment=True,
-                        download_name=downloaded_file.name
-                    )
-                else:
-                    flash('Download failed. The video might be private or region-locked.', 'error')
-                    
-            except yt_dlp.utils.DownloadError as e:
-                flash('Download Error: This video may not be available. Age-restricted videos often fail.', 'error')
-            except Exception as e:
-                flash(f'An unexpected error occurred.', 'error')
-        
-        return redirect(url_for('index'))
-
+        except Exception as e:
+            flash(f'Error: {str(e)}', 'error')
+    
     return render_template('index.html')
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run(debug=True, host='0.0.0.0', port=5000)
